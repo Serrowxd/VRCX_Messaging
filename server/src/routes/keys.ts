@@ -2,9 +2,13 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { authenticate } from '../middleware/auth';
 import { validate, keyExchangeSchemas } from '../middleware/validation';
 import { rateLimiters } from '../middleware/rateLimiter';
-import { query } from '../database/connection';
-import { logAudit } from '../utils/logger';
-import { NotFoundError, ValidationError, ConflictError } from '../middleware/errorHandler';
+import { keyService } from '../services/keyService';
+import { 
+    UploadKeysRequest, 
+    RotateKeysRequest, 
+    VerifyKeyRequest 
+} from '../models/keys';
+import { logger } from '../utils/logger';
 
 interface AuthRequest extends FastifyRequest {
     user?: {
@@ -41,25 +45,19 @@ export default async function keyExchangeRoutes(app: FastifyInstance) {
         ]
     }, async (request: AuthRequest, reply: FastifyReply) => {
         const { userId } = request.user!;
-        const { 
-            identityKey, 
-            signedPreKey, 
-            oneTimePreKeys, 
-            deviceId, 
-            registrationId 
-        } = request.body as any;
+        const uploadRequest = request.body as UploadKeysRequest;
         
-        // Store keys in database (placeholder)
-        logAudit('Keys uploaded', userId, {
-            deviceId,
-            registrationId,
-            oneTimePreKeysCount: oneTimePreKeys.length
-        });
-        
-        return {
-            message: 'Keys uploaded successfully',
-            keysStored: oneTimePreKeys.length + 1
-        };
+        try {
+            const result = await keyService.uploadKeyBundle(userId, uploadRequest);
+            
+            return {
+                message: 'Keys uploaded successfully',
+                keysStored: result.keysStored
+            };
+        } catch (error) {
+            logger.error('Failed to upload keys', { userId, error });
+            throw error;
+        }
     });
 
     /**
@@ -119,27 +117,21 @@ export default async function keyExchangeRoutes(app: FastifyInstance) {
         const { userId } = request.params as any;
         const { deviceId } = request.query as any;
         
-        // Get key bundle from database (placeholder)
-        logAudit('Key bundle retrieved', requestingUserId, {
-            targetUserId: userId,
-            deviceId
-        });
-        
-        // Placeholder response
-        return {
-            identityKey: 'base64_identity_key',
-            signedPreKey: {
-                keyId: 1,
-                publicKey: 'base64_signed_prekey',
-                signature: 'base64_signature'
-            },
-            oneTimePreKey: {
-                keyId: 1,
-                publicKey: 'base64_onetime_prekey'
-            },
-            registrationId: 12345,
-            deviceId: deviceId || 1
-        };
+        try {
+            const bundle = await keyService.getKeyBundle(userId, deviceId);
+            
+            logger.info('Key bundle retrieved', {
+                requestingUserId,
+                targetUserId: userId,
+                deviceId: bundle.deviceId,
+                hasOneTimeKey: !!bundle.oneTimePreKey
+            });
+            
+            return bundle;
+        } catch (error) {
+            logger.error('Failed to get key bundle', { requestingUserId, targetUserId: userId, error });
+            throw error;
+        }
     });
 
     /**
@@ -169,19 +161,20 @@ export default async function keyExchangeRoutes(app: FastifyInstance) {
         ]
     }, async (request: AuthRequest, reply: FastifyReply) => {
         const { userId, deviceId } = request.user!;
-        const { signedPreKey, oneTimePreKeys } = request.body as any;
+        const rotateRequest = request.body as RotateKeysRequest;
         
-        logAudit('Keys rotated', userId, {
-            deviceId,
-            signedPreKeyRotated: !!signedPreKey,
-            oneTimePreKeysAdded: oneTimePreKeys?.length || 0
-        });
-        
-        return {
-            message: 'Keys rotated successfully',
-            signedPreKeyRotated: !!signedPreKey,
-            oneTimePreKeysAdded: oneTimePreKeys?.length || 0
-        };
+        try {
+            const result = await keyService.rotateKeys(userId, deviceId, rotateRequest);
+            
+            return {
+                message: 'Keys rotated successfully',
+                signedPreKeyRotated: result.signedPreKeyRotated,
+                oneTimePreKeysAdded: result.oneTimePreKeysAdded
+            };
+        } catch (error) {
+            logger.error('Failed to rotate keys', { userId, deviceId, error });
+            throw error;
+        }
     });
 
     /**
@@ -205,17 +198,15 @@ export default async function keyExchangeRoutes(app: FastifyInstance) {
         },
         preHandler: [authenticate]
     }, async (request: AuthRequest, reply: FastifyReply) => {
-        const { userId, deviceId } = request.user!;
+        const { userId } = request.user!;
         
-        // Get count from database (placeholder)
-        const count = 50; // Placeholder
-        const minimum = 20;
-        
-        return {
-            count,
-            minimum,
-            shouldReplenish: count < minimum
-        };
+        try {
+            const keyCount = await keyService.getKeyCountInfo(userId);
+            return keyCount;
+        } catch (error) {
+            logger.error('Failed to get key count', { userId, error });
+            throw error;
+        }
     });
 
     /**
@@ -248,18 +239,15 @@ export default async function keyExchangeRoutes(app: FastifyInstance) {
         preHandler: [authenticate]
     }, async (request: AuthRequest, reply: FastifyReply) => {
         const verifyingUserId = request.user!.userId;
-        const { userId, identityKey, deviceId } = request.body as any;
+        const verifyRequest = request.body as VerifyKeyRequest;
         
-        // Verify key (placeholder)
-        logAudit('Key verification', verifyingUserId, {
-            targetUserId: userId,
-            deviceId
-        });
-        
-        return {
-            verified: true,
-            trustLevel: 'trusted'
-        };
+        try {
+            const result = await keyService.verifyIdentityKey(verifyingUserId, verifyRequest);
+            return result;
+        } catch (error) {
+            logger.error('Failed to verify key', { verifyingUserId, targetUserId: verifyRequest.userId, error });
+            throw error;
+        }
     });
 
     /**
@@ -295,10 +283,13 @@ export default async function keyExchangeRoutes(app: FastifyInstance) {
     }, async (request: AuthRequest, reply: FastifyReply) => {
         const { userId } = request.user!;
         
-        // Get trusted keys from database (placeholder)
-        return {
-            trustedKeys: []
-        };
+        try {
+            const trustedKeys = await keyService.getTrustedKeys(userId);
+            return { trustedKeys };
+        } catch (error) {
+            logger.error('Failed to get trusted keys', { userId, error });
+            throw error;
+        }
     });
 
     /**
@@ -330,12 +321,15 @@ export default async function keyExchangeRoutes(app: FastifyInstance) {
         const { userId } = request.user!;
         const { deviceId } = request.params as any;
         
-        logAudit('Device keys revoked', userId, {
-            revokedDeviceId: deviceId
-        });
-        
-        return {
-            message: 'Device keys revoked successfully'
-        };
+        try {
+            await keyService.revokeDeviceKeys(userId, parseInt(deviceId, 10));
+            
+            return {
+                message: 'Device keys revoked successfully'
+            };
+        } catch (error) {
+            logger.error('Failed to revoke device keys', { userId, deviceId, error });
+            throw error;
+        }
     });
 }
