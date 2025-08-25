@@ -406,34 +406,6 @@ const messagesDb = {
         return key;
     },
 
-    // Session operations
-    async saveSession(userId, sessionData) {
-        const userPrefix = this.getUserPrefix(userId);
-        const sql = `
-            INSERT OR REPLACE INTO ${userPrefix}_sessions (
-                id, user_id, device_id, session_record
-            ) VALUES (
-                @id, @user_id, @device_id, @session_record
-            )
-        `;
-        return sqliteService.executeNonQuery(sql, {
-            id: `${sessionData.user_id}:${sessionData.device_id || 1}`,
-            ...sessionData
-        });
-    },
-
-    async getSession(userId, targetUserId, deviceId = 1) {
-        const userPrefix = this.getUserPrefix(userId);
-        const sql = `
-            SELECT * FROM ${userPrefix}_sessions 
-            WHERE id = @id
-        `;
-        let session = null;
-        await sqliteService.execute((row) => {
-            session = row;
-        }, sql, { id: `${targetUserId}:${deviceId}` });
-        return session;
-    },
 
     // Message queue operations
     async queueMessage(userId, queueData) {
@@ -516,6 +488,257 @@ const messagesDb = {
             key = row;
         }, sql, { user_id: targetUserId });
         return key;
+    },
+
+    // Additional encryption key operations for E2EE service
+    async saveIdentityKeys(userId, identityData) {
+        const userPrefix = this.getUserPrefix(userId);
+        const sql = `
+            INSERT OR REPLACE INTO ${userPrefix}_encryption_keys (
+                id, user_id, key_type, public_key, private_key_encrypted,
+                key_metadata, created_at
+            ) VALUES (
+                @id, @user_id, 'identity', @public_key, @private_key,
+                @metadata, @created_at
+            )
+        `;
+        return sqliteService.executeNonQuery(sql, {
+            id: `${userId}_identity`,
+            user_id: userId,
+            public_key: identityData.public_key,
+            private_key: identityData.private_key,
+            metadata: JSON.stringify({
+                registration_id: identityData.registration_id,
+                device_id: identityData.device_id,
+                current_prekey_id: identityData.current_prekey_id,
+                current_signed_prekey_id: identityData.current_signed_prekey_id
+            }),
+            created_at: Date.now()
+        });
+    },
+
+    async getIdentityKeys(userId) {
+        const userPrefix = this.getUserPrefix(userId);
+        const sql = `
+            SELECT * FROM ${userPrefix}_encryption_keys 
+            WHERE user_id = @user_id AND key_type = 'identity'
+        `;
+        let keys = null;
+        await sqliteService.execute((row) => {
+            if (row && row.key_metadata) {
+                const metadata = JSON.parse(row.key_metadata);
+                keys = {
+                    public_key: row.public_key,
+                    private_key: row.private_key_encrypted,
+                    registration_id: metadata.registration_id,
+                    device_id: metadata.device_id,
+                    current_prekey_id: metadata.current_prekey_id,
+                    current_signed_prekey_id: metadata.current_signed_prekey_id
+                };
+            }
+        }, sql, { user_id: userId });
+        return keys;
+    },
+
+    async saveSignedPreKey(userId, signedPreKey) {
+        const userPrefix = this.getUserPrefix(userId);
+        const sql = `
+            INSERT INTO ${userPrefix}_encryption_keys (
+                id, user_id, key_type, key_id, public_key,
+                private_key_encrypted, signature, key_metadata, created_at
+            ) VALUES (
+                @id, @user_id, 'signed_prekey', @key_id, @public_key,
+                @private_key, @signature, @metadata, @created_at
+            )
+        `;
+        return sqliteService.executeNonQuery(sql, {
+            id: `${userId}_signed_${signedPreKey.keyId}`,
+            user_id: userId,
+            key_id: signedPreKey.keyId,
+            public_key: signedPreKey.publicKey,
+            private_key: signedPreKey.privateKey,
+            signature: signedPreKey.signature,
+            metadata: JSON.stringify({ timestamp: signedPreKey.timestamp }),
+            created_at: signedPreKey.timestamp || Date.now()
+        });
+    },
+
+    async getLatestSignedPreKey(userId) {
+        const userPrefix = this.getUserPrefix(userId);
+        const sql = `
+            SELECT * FROM ${userPrefix}_encryption_keys 
+            WHERE user_id = @user_id AND key_type = 'signed_prekey'
+            ORDER BY created_at DESC
+            LIMIT 1
+        `;
+        let signedPreKey = null;
+        await sqliteService.execute((row) => {
+            if (row) {
+                const metadata = row.key_metadata ? JSON.parse(row.key_metadata) : {};
+                signedPreKey = {
+                    keyId: row.key_id,
+                    publicKey: row.public_key,
+                    privateKey: row.private_key_encrypted,
+                    signature: row.signature,
+                    timestamp: metadata.timestamp || row.created_at
+                };
+            }
+        }, sql, { user_id: userId });
+        return signedPreKey;
+    },
+
+    async getAllSignedPreKeys(userId) {
+        const userPrefix = this.getUserPrefix(userId);
+        const sql = `
+            SELECT * FROM ${userPrefix}_encryption_keys 
+            WHERE user_id = @user_id AND key_type = 'signed_prekey'
+            ORDER BY created_at DESC
+        `;
+        const signedPreKeys = [];
+        await sqliteService.execute((row) => {
+            const metadata = row.key_metadata ? JSON.parse(row.key_metadata) : {};
+            signedPreKeys.push({
+                keyId: row.key_id,
+                publicKey: row.public_key,
+                privateKey: row.private_key_encrypted,
+                signature: row.signature,
+                timestamp: metadata.timestamp || row.created_at
+            });
+        }, sql, { user_id: userId });
+        return signedPreKeys;
+    },
+
+    async savePreKey(userId, preKey) {
+        const userPrefix = this.getUserPrefix(userId);
+        const sql = `
+            INSERT INTO ${userPrefix}_encryption_keys (
+                id, user_id, key_type, key_id, public_key,
+                private_key_encrypted, created_at
+            ) VALUES (
+                @id, @user_id, 'onetime_prekey', @key_id, @public_key,
+                @private_key, @created_at
+            )
+        `;
+        return sqliteService.executeNonQuery(sql, {
+            id: `${userId}_prekey_${preKey.keyId}`,
+            user_id: userId,
+            key_id: preKey.keyId,
+            public_key: preKey.publicKey,
+            private_key: preKey.privateKey,
+            created_at: Date.now()
+        });
+    },
+
+    async getUnusedPreKey(userId) {
+        const userPrefix = this.getUserPrefix(userId);
+        const sql = `
+            SELECT * FROM ${userPrefix}_encryption_keys 
+            WHERE user_id = @user_id 
+              AND key_type = 'onetime_prekey'
+              AND consumed_at IS NULL
+            ORDER BY key_id
+            LIMIT 1
+        `;
+        let preKey = null;
+        await sqliteService.execute((row) => {
+            if (row) {
+                preKey = {
+                    keyId: row.key_id,
+                    publicKey: row.public_key,
+                    privateKey: row.private_key_encrypted
+                };
+                // Mark as consumed
+                this.markPreKeyAsUsed(userId, row.key_id);
+            }
+        }, sql, { user_id: userId });
+        return preKey;
+    },
+
+    async markPreKeyAsUsed(userId, keyId) {
+        const userPrefix = this.getUserPrefix(userId);
+        const sql = `
+            UPDATE ${userPrefix}_encryption_keys 
+            SET consumed_at = @consumed_at
+            WHERE user_id = @user_id 
+              AND key_type = 'onetime_prekey'
+              AND key_id = @key_id
+        `;
+        return sqliteService.executeNonQuery(sql, {
+            user_id: userId,
+            key_id: keyId,
+            consumed_at: Date.now()
+        });
+    },
+
+    async countUnusedPreKeys(userId) {
+        const userPrefix = this.getUserPrefix(userId);
+        const sql = `
+            SELECT COUNT(*) as count FROM ${userPrefix}_encryption_keys 
+            WHERE user_id = @user_id 
+              AND key_type = 'onetime_prekey'
+              AND consumed_at IS NULL
+        `;
+        let count = 0;
+        await sqliteService.execute((row) => {
+            count = row.count;
+        }, sql, { user_id: userId });
+        return count;
+    },
+
+    async cleanupUsedPreKeys(userId) {
+        const userPrefix = this.getUserPrefix(userId);
+        const cutoffTime = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7 days
+        const sql = `
+            DELETE FROM ${userPrefix}_encryption_keys 
+            WHERE user_id = @user_id 
+              AND key_type = 'onetime_prekey'
+              AND consumed_at IS NOT NULL
+              AND consumed_at < @cutoff
+        `;
+        return sqliteService.executeNonQuery(sql, {
+            user_id: userId,
+            cutoff: cutoffTime
+        });
+    },
+
+    // Enhanced session operations for E2EE
+    async saveSession(userId, recipientId, sessionData) {
+        const userPrefix = this.getUserPrefix(userId);
+        const sql = `
+            INSERT OR REPLACE INTO ${userPrefix}_sessions (
+                id, user_id, device_id, session_record, updated_at
+            ) VALUES (
+                @id, @user_id, @device_id, @session_record, @updated_at
+            )
+        `;
+        return sqliteService.executeNonQuery(sql, {
+            id: `${recipientId}:${sessionData.deviceId || 1}`,
+            user_id: recipientId,
+            device_id: sessionData.deviceId || 1,
+            session_record: JSON.stringify(sessionData),
+            updated_at: Date.now()
+        });
+    },
+
+    async getSession(userId, recipientId) {
+        const userPrefix = this.getUserPrefix(userId);
+        const sql = `
+            SELECT * FROM ${userPrefix}_sessions 
+            WHERE user_id = @user_id
+            ORDER BY updated_at DESC
+            LIMIT 1
+        `;
+        let session = null;
+        await sqliteService.execute((row) => {
+            if (row && row.session_record) {
+                session = JSON.parse(row.session_record);
+            }
+        }, sql, { user_id: recipientId });
+        return session;
+    },
+
+    async updateSession(userId, recipientId, sessionData) {
+        return this.saveSession(userId, recipientId, sessionData);
     },
 
     // Utility functions
