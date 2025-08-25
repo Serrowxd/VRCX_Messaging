@@ -12,6 +12,7 @@ import { worldFavorites } from './database/worldFavorites.js';
 import { tableAlter } from './database/tableAlter.js';
 import { tableFixes } from './database/tableFixes.js';
 import { tableSize } from './database/tableSize.js';
+import { messagesDb } from './database/messages.js';
 
 const dbVars = {
     userId: '',
@@ -32,6 +33,7 @@ const database = {
     ...tableAlter,
     ...tableFixes,
     ...tableSize,
+    ...messagesDb,
 
     setMaxTableSize(limit) {
         dbVars.maxTableSize = limit;
@@ -77,6 +79,8 @@ const database = {
         await sqliteService.executeNonQuery(
             `CREATE TABLE IF NOT EXISTS ${dbVars.userPrefix}_notes (user_id TEXT PRIMARY KEY, display_name TEXT, note TEXT, created_at TEXT)`
         );
+        // Initialize messaging tables
+        await messagesDb.initMessagingTables(userId);
     },
 
     async initTables() {

@@ -12,10 +12,10 @@
     "test:coverage": "jest --coverage",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
-    "migrate": "node-pg-migrate",
-    "migrate:up": "node-pg-migrate up",
-    "migrate:down": "node-pg-migrate down",
-    "migrate:create": "node-pg-migrate create"
+    "migrate": "ts-node scripts/run-migrations.ts",
+    "migrate:reset": "ts-node scripts/run-migrations.ts reset",
+    "migrate:verify": "ts-node scripts/run-migrations.ts verify",
+    "db:init": "ts-node scripts/run-migrations.ts"
   },
   "keywords": [
     "vrcx",
