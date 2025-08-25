@@ -1,0 +1,65 @@
+{
+  "name": "vrcx-messaging-server",
+  "version": "1.0.0",
+  "description": "End-to-end encrypted messaging server for VRCX",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "nodemon --exec ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "migrate": "node-pg-migrate",
+    "migrate:up": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down",
+    "migrate:create": "node-pg-migrate create"
+  },
+  "keywords": [
+    "vrcx",
+    "messaging",
+    "e2ee",
+    "signal-protocol"
+  ],
+  "author": "VRCX Team",
+  "license": "MIT",
+  "dependencies": {
+    "@signalapp/libsignal-client": "^0.32.1",
+    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.4.2",
+    "@fastify/jwt": "^7.2.4",
+    "@fastify/rate-limit": "^9.0.1",
+    "@fastify/swagger": "^8.12.1",
+    "@fastify/swagger-ui": "^2.0.1",
+    "socket.io": "^4.6.2",
+    "pg": "^8.11.3",
+    "redis": "^4.6.11",
+    "bullmq": "^4.14.0",
+    "winston": "^3.11.0",
+    "dotenv": "^16.3.1",
+    "argon2": "^0.31.2",
+    "uuid": "^9.0.1",
+    "joi": "^17.11.0",
+    "node-pg-migrate": "^6.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.4",
+    "@types/pg": "^8.10.9",
+    "@types/uuid": "^9.0.7",
+    "@typescript-eslint/eslint-plugin": "^6.13.2",
+    "@typescript-eslint/parser": "^6.13.2",
+    "eslint": "^8.55.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.10",
+    "ts-jest": "^29.1.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.3.3",
+    "nodemon": "^3.0.2",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

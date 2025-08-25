@@ -8,3 +8,27 @@ obj1/
 .vs/
 Installer/version_define.nsh
 bun.lock
+
+# Server specific
+server/dist/
+server/coverage/
+server/logs/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Docker volumes
+postgres_data/
+redis_data/
+
+# Testing
+*.lcov
+.nyc_output/
+
+# Package manager locks (keep package-lock.json)
+yarn.lock
+pnpm-lock.yaml
